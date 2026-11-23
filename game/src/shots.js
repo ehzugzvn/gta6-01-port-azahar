@@ -1,79 +1,38 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
-
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
-
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
-    }
-  }
-  return Infinity;
-}
-
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
-  }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+import {showBanner,showDistrict,setCountdown,setRace} from './hud.js';
+export function getShot(){const q=new URLSearchParams(location.search);return q.get('shot')}
+export function applyShot(name,S){
+ // S: {playerCar,player,police,camera,state,missions,rivals}
+ if(name==='cover'){
+  S.state.wanted=4;S.state.mode='drive';S.missions.index=4;
+  S.playerCar.position.set(-62,0,20);S.playerCar.rotation.y=0;S.playerCar.userData.angle=0;
+  S.police.setWanted(4,S.playerCar.position);
+  S.police.cars[0].position.set(-67,0,13);S.police.cars[0].rotation.y=0;
+  if(S.police.cars[1]){S.police.cars[1].position.set(-56,0,10);S.police.cars[1].rotation.y=0}
+  if(S.police.cars[2]){S.police.cars[2].position.set(-62,0,2);S.police.cars[2].rotation.y=0}
+  S.police.heli.position.set(-50,15,44);S.police.heli.visible=true;
+  if(S.peds)S.peds.peds.forEach(p=>p.visible=false);
+  showBanner('JOB 5 · QUIET MANIFEST — Shake the PPA, reach the marina');
+  showDistrict('MUELLE — THE QUAY');
+  S.camera.position.set(-62,5.5,-2);S.camera.lookAt(-60,2,40);
+ } else if(name==='onfoot'){
+  S.state.mode='foot';S.state.wanted=1;
+  S.player.position.set(10,0,66);S.player.rotation.y=0.8;S.player.visible=true;
+  if(S.missions.marker)S.missions.marker.position.set(24,11,76);
+  S.police.setWanted(1,S.player.position);if(S.police.cars[0]){S.police.cars[0].position.set(0,0,88);S.police.cars[0].rotation.y=Math.PI}
+  showBanner('JOB 1 · PAPER TRAIL — Pickup in the container yard');
+  showDistrict('MUELLE DE CONTENEDORES');
+  S.camera.position.set(1,2.8,57);S.camera.lookAt(16,1.3,70);
+ } else if(name==='race'){
+  S.state.mode='drive';S.state.wanted=0;
+  S.playerCar.position.set(-62,0,-60);S.playerCar.rotation.y=0;
+  S.rivals.forEach((r,i)=>{r.position.set(-68+i*7,0,-60);r.rotation.y=0});
+  setCountdown('3');setRace('QUAY RACE<br>Position 4/4<br>Lap 1/1 · Checkpoint 0/6');
+  showBanner('STREET RACE — Along the quay to Faro Point');
+  showDistrict('MUELLE — RACE START');
+  S.camera.position.set(-62,6,-78);S.camera.lookAt(-62,1,-40);
+ } else if(name==='menu'){
+  document.getElementById('menu').classList.remove('hidden');
+  S.playerCar.position.set(-62,0,10);S.playerCar.rotation.y=0.4;
+  S.camera.position.set(-78,7,-18);S.camera.lookAt(-30,4,30);
+ }
 }
